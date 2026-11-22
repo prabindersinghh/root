@@ -2,20 +2,41 @@ name: sofie-diff
 on:
   push:
     branches: [ci/sofie-diff]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: ROOT ref to build
+        default: master
 jobs:
   diff:
-    runs-on: ubuntu-latest
-    container: rootproject/root:latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: .github/sofie-diff
-      - name: Check SOFIE
+          path: harness
+      - name: Deps
         run: |
-          root-config --version
-          root-config --features | tr ' ' '\n' | grep -i -E "sofie|tmva|protobuf" || true
-      - name: Install onnx tools
-        run: python3 -m pip install --break-system-packages -q onnx onnxruntime numpy || python3 -m pip install -q onnx onnxruntime numpy
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ git python3-dev python3-numpy protobuf-compiler libprotobuf-dev libssl-dev libpcre2-dev zlib1g-dev liblzma-dev libxxhash-dev liblz4-dev libzstd-dev libtbb-dev ccache > /dev/null
+          python3 -m pip install --break-system-packages -q onnx onnxruntime
+      - name: Checkout ROOT
+        run: git clone --depth 1 --branch "${{ github.event.inputs.ref || 'master' }}" https://github.com/prabindersinghh/root.git src
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-sofie-${{ github.run_id }}
+          restore-keys: ccache-sofie-
+      - name: Configure
+        run: |
+          cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -Dminimal=ON -Dtmva=ON -Dtmva-sofie=ON -Dpyroot=ON -Dtesting=OFF -Droottest=OFF \
+            -Dfail-on-missing=OFF 2>&1 | tail -40
+          grep -iE "tmva-sofie|tmva:|pyroot" build/CMakeCache.txt | head
+      - name: Build
+        run: cmake --build build -j4 2>&1 | tail -15
       - name: Differential test
-        run: python3 .github/sofie-diff/sofie_diff.py 2>&1 | grep -E "^ROOT|^RESULT|Error|error" | head -200
+        run: |
+          . build/bin/thisroot.sh
+          cd /tmp && python3 $GITHUB_WORKSPACE/harness/.github/sofie-diff/sofie_diff.py 2>&1 | grep -E "^ROOT|^RESULT|Error|error" | head -200
