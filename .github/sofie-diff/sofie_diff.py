@@ -114,6 +114,31 @@ case("Sigmoid", [h.make_node("Sigmoid", ["X"], ["Y"])], x_in, y_out([2, 3, 4]), 
 case("Erf", [h.make_node("Erf", ["X"], ["Y"])], x_in, y_out([2, 3, 4]), {"X": X})
 
 
+# --- focused Gemm / Softmax variants ---
+for ta in (0, 1):
+    for tb in (0, 1):
+        for alpha, beta in ((1.0, 1.0), (0.5, 1.0), (1.0, 2.0)):
+            for cshape in ("none", "N", "1N", "M1", "MN", "scalar"):
+                M, K, N = 3, 4, 5
+                A = f32(*((K, M) if ta else (M, K)))
+                Bm = f32(*((N, K) if tb else (K, N)))
+                inits = [h.make_tensor("B", F, list(Bm.shape), Bm.ravel())]
+                ins = ["A", "B"]
+                if cshape != "none":
+                    shp = {"N": [N], "1N": [1, N], "M1": [M, 1], "MN": [M, N], "scalar": []}[cshape]
+                    C = f32(*shp) if shp else np.array(0.7, dtype=np.float32)
+                    inits.append(h.make_tensor("C", F, shp, np.atleast_1d(C).ravel()))
+                    ins.append("C")
+                case(f"Gemm_tA{ta}_tB{tb}_a{alpha}_b{beta}_C{cshape}",
+                     [h.make_node("Gemm", ins, ["Y"], transA=ta, transB=tb, alpha=alpha, beta=beta)],
+                     [vi("A", F, list(A.shape))], y_out([M, N]), {"A": A}, inits=inits)
+for opset in (11, 13):
+    for axis in (None, 0, 1, 2, -1):
+        kw = {} if axis is None else {"axis": axis}
+        case(f"Softmax_op{opset}_axis{axis}", [h.make_node("Softmax", ["X"], ["Y"], **kw)], x_in, y_out([2, 3, 4]), {"X": X}, opset=opset)
+    case(f"Softmax_op{opset}_rank2_default", [h.make_node("Softmax", ["X2"], ["Y"])], [vi("X2", F, [3, 4])], y_out([3, 4]),
+         {"X2": f32(3, 4)}, opset=opset)
+
 def run_sofie(m, name, feeds, out_names):
     path = f"/tmp/sofie_{name}.onnx"
     onnx.save(m, path)
@@ -133,7 +158,10 @@ def run_sofie(m, name, feeds, out_names):
 
 
 results = []
+FILTER = os.environ.get("FILTER", "")
 for name, nodes, inputs, outputs, feeds, inits, opset in CASES:
+    if FILTER and not __import__("re").search(FILTER, name):
+        continue
     try:
         m = model(f"sofie_{name}", nodes, inputs, outputs, inits, opset)
     except Exception as e:

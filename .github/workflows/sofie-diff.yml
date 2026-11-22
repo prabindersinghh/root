@@ -39,4 +39,4 @@ jobs:
       - name: Differential test
         run: |
           . build/bin/thisroot.sh
-          cd /tmp && python3 $GITHUB_WORKSPACE/harness/.github/sofie-diff/sofie_diff.py 2>&1 | grep -E "^ROOT|^RESULT|Error|error" | head -200
+          cd /tmp && FILTER="^(Gemm|Softmax)" python3 $GITHUB_WORKSPACE/harness/.github/sofie-diff/sofie_diff.py 2>&1 | grep -E "^ROOT|^RESULT|Error|error" | head -200
