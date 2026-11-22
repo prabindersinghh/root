@@ -1,0 +1,21 @@
+name: sofie-diff
+on:
+  push:
+    branches: [ci/sofie-diff]
+  workflow_dispatch: {}
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    container: rootproject/root:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/sofie-diff
+      - name: Check SOFIE
+        run: |
+          root-config --version
+          root-config --features | tr ' ' '\n' | grep -i -E "sofie|tmva|protobuf" || true
+      - name: Install onnx tools
+        run: python3 -m pip install --break-system-packages -q onnx onnxruntime numpy || python3 -m pip install -q onnx onnxruntime numpy
+      - name: Differential test
+        run: python3 .github/sofie-diff/sofie_diff.py 2>&1 | grep -E "^ROOT|^RESULT|Error|error" | head -200
