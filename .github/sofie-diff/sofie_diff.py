@@ -36,6 +36,7 @@ CASES = []
 
 
 def case(name, nodes, inputs, outputs, feeds, inits=(), opset=17):
+    name = __import__("re").sub(r"[^A-Za-z0-9_]", "_", name)
     CASES.append((name, nodes, inputs, outputs, feeds, inits, opset))
 
 
