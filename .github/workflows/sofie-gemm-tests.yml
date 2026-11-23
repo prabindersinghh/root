@@ -1,0 +1,48 @@
+name: sofie-gemm-tests
+on:
+  push:
+    branches: [ci/sofie-gemm-test]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          fetch-depth: 3
+      - name: Deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ git python3-dev python3-numpy protobuf-compiler libprotobuf-dev libssl-dev libpcre2-dev zlib1g-dev liblzma-dev libxxhash-dev liblz4-dev libzstd-dev libtbb-dev ccache libfreetype-dev nlohmann-json3-dev libgsl-dev libopenblas-dev libgtest-dev > /dev/null
+          python3 -m pip install --break-system-packages -q "onnx!=1.19.0" onnxruntime
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-sofie-tests-${{ github.run_id }}
+          restore-keys: |
+            ccache-sofie-tests-
+            ccache-sofie-
+      - name: Configure
+        run: |
+          cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -Dminimal=ON -Dtmva=ON -Dtmva-sofie=ON -Dpyroot=ON -Dtesting=ON -Droottest=OFF -Dbuiltin_gtest=ON \
+            -Dfail-on-missing=OFF -Dbuiltin_vdt=ON 2>&1 | tail -30
+          test -f build/build.ninja
+      - name: Build
+        run: |
+          set -o pipefail
+          cmake --build build -j4 2>&1 | grep -E "error|FAILED" | head -40 || true
+          cmake --build build -j4 2>&1 | tail -5
+      - name: Tests with the fix
+        run: |
+          cd build
+          ctest -R "SofieGenerateModels_ONNX|SofieCompileModels_ONNX|TestCustomModelsFromONNX" --output-on-failure 2>&1 | tail -40 || true
+          (cd tmva/sofie/test && ./TestCustomModelsFromONNX --gtest_filter='ONNX.Gemm*:ONNX.Linear*' 2>&1) | grep -E "^\[ +(OK|FAILED|PASSED) +\]|tests ran" || true
+      - name: Tests with the original Gemm code
+        run: |
+          cd src && git checkout HEAD~2 -- tmva/sofie/inc/TMVA/ROperator_Gemm.hxx && git status --short && cd ..
+          cmake --build build -j4 2>&1 | tail -3
+          cd build
+          ctest -R "SofieCompileModels_ONNX" 2>&1 | tail -3 || true
+          (cd tmva/sofie/test && ./TestCustomModelsFromONNX --gtest_filter='ONNX.Gemm*:ONNX.Linear*' 2>&1) | grep -E "^\[ +(OK|FAILED|PASSED) +\]|tests ran|Expected|Which is" | head -40 || true
