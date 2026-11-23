@@ -27,7 +27,7 @@ jobs:
         run: |
           cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -Dminimal=ON -Dtmva=ON -Dtmva-sofie=ON -Dpyroot=ON -Dtesting=ON -Droottest=OFF -Dbuiltin_gtest=ON \
-            -Dfail-on-missing=OFF -Dbuiltin_vdt=ON 2>&1 | tail -30
+            -Dfail-on-missing=OFF -Dbuiltin_vdt=ON > cfg.log 2>&1 || true; grep -B2 -A10 "CMake Error" cfg.log | head -60; tail -5 cfg.log
           test -f build/build.ninja
       - name: Build
         run: |
